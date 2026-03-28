@@ -4,6 +4,7 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -13,14 +14,15 @@ import android.os.Build
 import android.os.Build.VERSION
 import android.os.Build.VERSION_CODES
 import android.hardware.camera2.CameraManager
-
 import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.bluetooth.BluetoothAdapter
 import android.content.pm.PackageManager
-
-import io.flutter.plugin.common.EventChannel
 import android.content.BroadcastReceiver
+import android.app.KeyguardManager
+import android.os.PowerManager
+import android.os.Vibrator
+import android.os.VibrationEffect
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.rana.voice_assistant/channel"
@@ -30,65 +32,41 @@ class MainActivity: FlutterActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
-        // MethodChannel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
             call, result ->
-            // ... existing methods ...
             when (call.method) {
-                "getBatteryLevel" -> {
-                    val batteryLevel = getBatteryLevel()
-                    if (batteryLevel != -1) result.success(batteryLevel)
-                    else result.error("UNAVAILABLE", "Battery level not available.", null)
-                }
+                "getBatteryLevel" -> result.success(getBatteryLevel())
                 "toggleFlashlight" -> {
-                    val status = call.argument<Boolean>("status") ?: false
-                    toggleFlashlight(status)
+                    toggleFlashlight(call.argument<Boolean>("status") ?: false)
                     result.success(null)
                 }
                 "setVolume" -> {
-                    val percent = call.argument<Int>("percent") ?: 50
-                    setVolume(percent)
+                    setVolume(call.argument<Int>("percent") ?: 50)
                     result.success(null)
                 }
                 "toggleWifi" -> {
-                    val status = call.argument<Boolean>("status") ?: false
-                    toggleWifi(status)
+                    toggleWifi(call.argument<Boolean>("status") ?: false)
                     result.success(null)
                 }
                 "toggleBluetooth" -> {
-                    val status = call.argument<Boolean>("status") ?: false
-                    val success = toggleBluetooth(status)
-                    result.success(success)
+                    result.success(toggleBluetooth(call.argument<Boolean>("status") ?: false))
                 }
                 "makeCall" -> {
-                    val number = call.argument<String>("number") ?: ""
-                    makeCall(number)
+                    makeCall(call.argument<String>("number") ?: "")
                     result.success(null)
                 }
-                "searchContact" -> {
-                    val name = call.argument<String>("name") ?: ""
-                    val contact = searchContact(name)
-                    result.success(contact)
-                }
+                "searchContact" -> result.success(searchContact(call.argument<String>("name") ?: ""))
                 "setAlarm" -> {
-                    val hour = call.argument<Int>("hour") ?: 0
-                    val minute = call.argument<Int>("minute") ?: 0
-                    setAlarm(hour, minute)
+                    setAlarm(call.argument<Int>("hour") ?: 0, call.argument<Int>("minute") ?: 0)
                     result.success(null)
                 }
                 "setTimer" -> {
-                    val seconds = call.argument<Int>("seconds") ?: 0
-                    setTimer(seconds)
+                    setTimer(call.argument<Int>("seconds") ?: 0)
                     result.success(null)
                 }
-                "openApp" -> {
-                    val packageName = call.argument<String>("packageName") ?: ""
-                    val success = openApp(packageName)
-                    result.success(success)
-                }
+                "openApp" -> result.success(openApp(call.argument<String>("packageName") ?: ""))
                 "controlMedia" -> {
-                    val action = call.argument<String>("action") ?: ""
-                    controlMedia(action)
+                    controlMedia(call.argument<String>("action") ?: "")
                     result.success(null)
                 }
                 "startVoiceService" -> {
@@ -99,29 +77,38 @@ class MainActivity: FlutterActivity() {
                     stopVoiceService()
                     result.success(null)
                 }
+                "vibrate" -> {
+                    vibrate()
+                    result.success(null)
+                }
+                "turnScreenOn" -> {
+                    turnScreenOn()
+                    result.success(null)
+                }
+                "unlockPhone" -> {
+                    unlockPhone()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
 
-        // EventChannel
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     eventSink = events
                 }
-
                 override fun onCancel(arguments: Any?) {
                     eventSink = null
                 }
             }
         )
-
         registerVoiceReceiver()
     }
 
     private fun registerVoiceReceiver() {
         val filter = IntentFilter("com.rana.voice_assistant.VOICE_TEXT")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (VERSION.SDK_INT >= VERSION_CODES.TIRAMISU) {
             registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(voiceReceiver, filter)
@@ -130,166 +117,146 @@ class MainActivity: FlutterActivity() {
 
     private val voiceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val text = intent?.getStringExtra("text")
-            if (text != null) {
-                eventSink?.success(text)
-            }
+            intent?.getStringExtra("text")?.let { eventSink?.success(it) }
         }
     }
 
     private fun startVoiceService() {
         val intent = Intent(this, VoiceService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        if (VERSION.SDK_INT >= VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
     private fun stopVoiceService() {
-        val intent = Intent(this, VoiceService::class.java)
-        stopService(intent)
+        stopService(Intent(this, VoiceService::class.java))
+    }
+
+    private fun vibrate() {
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (VERSION.SDK_INT >= VERSION_CODES.O) {
+            v.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            v.vibrate(500)
+        }
+    }
+
+    private fun turnScreenOn() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "Jasmin:WakeLock")
+        wl.acquire(3000)
+        if (VERSION.SDK_INT >= VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+    }
+
+    private fun unlockPhone() {
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        if (VERSION.SDK_INT >= VERSION_CODES.O) {
+            km.requestDismissKeyguard(this, null)
+        }
     }
 
     private fun controlMedia(action: String) {
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val keyCode = when (action) {
             "play", "pause" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
             "next" -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
             "previous" -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
             else -> -1
         }
-        
         if (keyCode != -1) {
-            val downIntent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode)
-            audioManager.dispatchMediaKeyEvent(downIntent)
-            
-            val upIntent = android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode)
-            audioManager.dispatchMediaKeyEvent(upIntent)
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+            am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode))
         }
     }
 
     private fun toggleBluetooth(status: Boolean): Boolean {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        return if (status) {
-            bluetoothAdapter.enable()
-        } else {
-            bluetoothAdapter.disable()
-        }
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+        return if (status) adapter.enable() else adapter.disable()
     }
 
     private fun makeCall(number: String) {
-        val intent = Intent(Intent.ACTION_CALL)
-        intent.data = android.net.Uri.parse("tel:$number")
+        val intent = Intent(Intent.ACTION_CALL, android.net.Uri.parse("tel:$number"))
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         startActivity(intent)
     }
 
     private fun searchContact(name: String): String? {
-        val contentResolver = contentResolver
         val cursor = contentResolver.query(
             android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             null,
-            android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " LIKE ?",
+            "${android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
             arrayOf("%$name%"),
             null
         )
-        if (cursor != null && cursor.moveToFirst()) {
-            val numberIndex = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
-            val phone = cursor.getString(numberIndex)
-            cursor.close()
-            return phone
+        cursor?.use {
+            if (it.moveToFirst()) {
+                return it.getString(it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER))
+            }
         }
-        cursor?.close()
         return null
     }
 
     private fun setAlarm(hour: Int, minute: Int) {
-        val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
-        intent.putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
-        intent.putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
-        intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+        val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+            putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+            putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, "Jasmin Alarm")
+            putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
         startActivity(intent)
     }
 
     private fun setTimer(seconds: Int) {
-        val intent = Intent(android.provider.AlarmClock.ACTION_SET_TIMER)
-        intent.putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
-        intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+        val intent = Intent(android.provider.AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(android.provider.AlarmClock.EXTRA_LENGTH, seconds)
+            putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
         startActivity(intent)
     }
 
-    private fun startBatteryMonitoring() {
-        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        registerReceiver(batteryReceiver, filter)
-    }
-
-    private val batteryReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            val batteryPct = level * 100 / scale.toFloat()
-            
-            // Send to Flutter if needed (e.g. via EventChannel or MethodChannel invoke)
-            // For now we just check for critical levels and can notify
-        }
-    }
-
     private fun setVolume(percent: Int) {
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val volume = (maxVolume * percent) / 100
-        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0)
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, (max * percent) / 100, 0)
     }
 
     private fun toggleWifi(status: Boolean) {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         if (VERSION.SDK_INT < VERSION_CODES.Q) {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiManager.isWifiEnabled = status
+            wm.isWifiEnabled = status
         } else {
-            // For Android 10+, users usually need to be prompted or use specialized APIs
-            // Here we just attempt, though it might be restricted
             val intent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             startActivity(intent)
         }
     }
 
     private fun openApp(packageName: String): Boolean {
-        val pm: PackageManager = packageManager
         return try {
-            val intent = pm.getLaunchIntentForPackage(packageName)
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
             if (intent != null) {
                 startActivity(intent)
                 true
-            } else {
-                false
-            }
-        } catch (e: Exception) {
-            false
-        }
+            } else false
+        } catch (e: Exception) { false }
     }
 
     private fun getBatteryLevel(): Int {
-        val batteryLevel: Int
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-            batteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+            (getSystemService(Context.BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         } else {
-            val intent = ContextWrapper(applicationContext).registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            batteryLevel = intent!!.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) * 100 / intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            intent?.let { it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) * 100 / it.getIntExtra(BatteryManager.EXTRA_SCALE, -1) } ?: -1
         }
-        return batteryLevel
     }
 
     private fun toggleFlashlight(status: Boolean) {
         try {
-            val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val cameraId = cameraManager.cameraIdList[0]
-            if (VERSION.SDK_INT >= VERSION_CODES.M) {
-                cameraManager.setTorchMode(cameraId, status)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+            val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            if (VERSION.SDK_INT >= VERSION_CODES.M) cm.setTorchMode(cm.cameraIdList[0], status)
+        } catch (e: Exception) {}
     }
 }

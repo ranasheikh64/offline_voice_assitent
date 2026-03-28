@@ -16,21 +16,31 @@ class VoiceController extends GetxController {
   
   var isListening = false.obs;
   var alwaysListening = true.obs;
-  var speechText = "শুরু করতে মাইকে চাপ দিন".obs;
-  var responseText = "আমি আপনাকে কীভাবে সাহায্য করতে পারি?".obs;
-  var batteryLevel = "০%".obs;
+  var speechText = "শুরু করতে মাইকে চাপ দিন / Press mic to start".obs;
+  var responseText = "জেসমিন আপনার সহায়তায় প্রস্তুত / Jasmin is ready to help".obs;
+  var batteryLevel = "০% / 0%".obs;
   
   final String assistantName = "Jasmin";
 
   final Map<String, String> appPackages = {
+    'youtube': 'com.google.android.youtube',
     'ইউটিউব': 'com.google.android.youtube',
+    'whatsapp': 'com.whatsapp',
     'হোয়াটসঅ্যাপ': 'com.whatsapp',
+    'facebook': 'com.facebook.katana',
     'ফেসবুক': 'com.facebook.katana',
+    'instagram': 'com.instagram.android',
     'ইনস্টাগ্রাম': 'com.instagram.android',
+    'chrome': 'com.android.chrome',
     'ক্রোম': 'com.android.chrome',
+    'maps': 'com.google.android.apps.maps',
     'ম্যাপ': 'com.google.android.apps.maps',
+    'settings': 'com.android.settings',
     'সেটিং': 'com.android.settings',
+    'camera': 'com.android.camera',
     'ক্যামেরা': 'com.android.camera',
+    'music': 'com.google.android.music',
+    'গান': 'com.google.android.music',
   };
 
   @override
@@ -49,7 +59,6 @@ class VoiceController extends GetxController {
   void _initBackgroundListener() {
     eventChannel.receiveBroadcastStream().listen((text) {
       if (text != null && text.toString().isNotEmpty) {
-        print("Background Voice: $text");
         chatController.addMessage(text.toString(), MessageType.user);
         _processCommand(text.toString());
       }
@@ -77,28 +86,27 @@ class VoiceController extends GetxController {
   Future<void> speak(String text) async {
     chatController.addMessage(text, MessageType.assistant);
     responseText.value = text;
+    // Autodetect language for better TTS
+    if (RegExp(r'[a-zA-Z]').hasMatch(text)) {
+      await _tts.setLanguage("en-US");
+    } else {
+      await _tts.setLanguage("bn-BD");
+    }
     await _tts.speak(text);
   }
 
   Future<void> startBackgroundService() async {
     try {
       await platform.invokeMethod('startVoiceService');
-    } catch (e) {
-      print("Error starting service: $e");
-    }
+    } catch (e) {}
   }
 
   Future<void> toggleListening() async {
-    // In background mode, we don't need manual toggle as much, but we keep it
     if (isListening.value) {
       _speech.stop();
       isListening.value = false;
     } else {
-      bool available = await _speech.initialize(
-        onStatus: (status) => print('STT Status: $status'),
-        onError: (error) => print('STT Error: $error'),
-      );
-      
+      bool available = await _speech.initialize();
       if (available) {
         isListening.value = true;
         _speech.listen(
@@ -120,79 +128,91 @@ class VoiceController extends GetxController {
     String cmd = command.toLowerCase();
     
     // Battery
-    if (cmd.contains("ব্যাটারি") || cmd.contains("চার্জ")) {
+    if (cmd.contains("battery") || cmd.contains("ব্যাটারি") || cmd.contains("চার্জ")) {
       _getBatteryLevel();
-      speak("আপনার ফোনের চার্জ এখন ${batteryLevel.value}");
+      speak("ব্যাটারি লেভেল ${batteryLevel.value} / Battery is ${batteryLevel.value}");
     } 
     // Flashlight
-    else if (cmd.contains("লাইট") || cmd.contains("টর্চ") || cmd.contains("খোলো") || cmd.contains("জ্বালাও")) {
-      bool turnOn = cmd.contains("জ্বালাও") || cmd.contains("খোলো") || cmd.contains("অন");
+    else if (cmd.contains("torch") || cmd.contains("flashlight") || cmd.contains("লাইট") || cmd.contains("জ্বালাও")) {
+      bool turnOn = cmd.contains("on") || cmd.contains("jalao") || cmd.contains("জ্বালাও") || cmd.contains("চালু");
       _toggleFlashlight(turnOn);
-      speak(turnOn ? "টর্চ জ্বালিয়েছি" : "টর্চ বন্ধ করেছি");
+      speak(turnOn ? "লাইট জ্বালিয়েছি / Flashlight ON" : "লাইট বন্ধ করেছি / Flashlight OFF");
     } 
+    // Vibrate
+    else if (cmd.contains("vibrate") || cmd.contains("ভাইব্রেট") || cmd.contains("কাঁপা")) {
+      _vibrate();
+      speak("ভাইব্রেট করছি / Vibrating");
+    }
+    // Screen Control
+    else if (cmd.contains("screen on") || cmd.contains("স্ক্রিন অন") || cmd.contains("আলো জ্বালাও")) {
+      _turnScreenOn();
+      speak("স্ক্রিন অন করেছি / Screen ON");
+    }
+    else if (cmd.contains("unlock") || cmd.contains("আনলক") || cmd.contains("তালা খোলো")) {
+      _unlockPhone();
+      speak("আনলক করার চেষ্টা করছি / Attempting to unlock");
+    }
     // Time & Date
-    else if (cmd.contains("সময়") || cmd.contains("কয়টা বাজে")) {
+    else if (cmd.contains("time") || cmd.contains("সময়") || cmd.contains("বাজে")) {
       String time = DateFormat('hh:mm a').format(DateTime.now());
-      speak("এখন সময় $time");
-    } else if (cmd.contains("তারিখ") || cmd.contains("আজ কি বার")) {
+      speak("এখন $time / It's $time");
+    } else if (cmd.contains("date") || cmd.contains("today") || cmd.contains("তারিখ")) {
       String date = DateFormat('EEEE, MMMM d, y').format(DateTime.now());
-      speak("আজকের তারিখ $date");
+      speak("আজ $date / Today is $date");
     }
     // Volume
-    else if (cmd.contains("ভলিউম") || cmd.contains("আওয়াজ")) {
+    else if (cmd.contains("volume") || cmd.contains("ভলিউম") || cmd.contains("আওয়াজ")) {
       int volume = 50;
       RegExp regExp = RegExp(r"(\d+)");
       var match = regExp.firstMatch(cmd);
-      if (match != null) {
-        volume = int.parse(match.group(0)!);
-      } else if (cmd.contains("ফুল") || cmd.contains("বাড়িয়ে দাও")) {
-        volume = 100;
-      } else if (cmd.contains("জিরো") || cmd.contains("কমিয়ে দাও")) {
-        volume = 0;
-      }
+      if (match != null) volume = int.parse(match.group(0)!);
+      else if (cmd.contains("full") || cmd.contains("maximum") || cmd.contains("ফুল")) volume = 100;
+      else if (cmd.contains("mute") || cmd.contains("zero") || cmd.contains("বন্ধ")) volume = 0;
+      
       _setVolume(volume);
-      speak("ভলিউম $volume percent করা হয়েছে");
+      speak("ভলিউম $volume% করা হয়েছে / Volume set to $volume%");
     }
     // WiFi
-    else if (cmd.contains("ওয়াইফাই") || cmd.contains("ওয়াই-ফাই")) {
-      bool turnOn = cmd.contains("চালু") || cmd.contains("অন");
-      _toggleWifi(turnOn);
-      speak("ওয়াইফাই সেটিংস খোলা হয়েছে");
+    else if (cmd.contains("wifi") || cmd.contains("ওয়াইফাই")) {
+      _toggleWifi(cmd.contains("on") || cmd.contains("চালু"));
+      speak("ওয়াইফাই সেটিংস / WiFi Settings");
     }
     // Bluetooth
-    else if (cmd.contains("ব্লুটুথ")) {
-      bool turnOn = cmd.contains("চালু") || cmd.contains("অন");
+    else if (cmd.contains("bluetooth") || cmd.contains("ব্লুটুথ")) {
+      bool turnOn = cmd.contains("on") || cmd.contains("চালু");
       _toggleBluetooth(turnOn);
-      speak(turnOn ? "ব্লুটুথ চালু করেছি" : "ব্লুটুথ বন্ধ করেছি");
+      speak(turnOn ? "ব্লুটুথ চালু করেছি / Bluetooth ON" : "ব্লুটুথ বন্ধ করেছি / Bluetooth OFF");
     }
     // Call & Contacts
-    else if (cmd.contains("কল") || cmd.contains("ফোন")) {
-      String name = cmd.replaceAll("কল", "").replaceAll("ফোন", "").replaceAll("দাও", "").trim();
-      if (name.isNotEmpty) {
-        _handleCallCommand(name);
-      } else {
-        speak("কাকে কল করতে হবে?");
-      }
+    else if (cmd.contains("call") || cmd.contains("কল") || cmd.contains("ফোন")) {
+      String name = cmd.replaceAll("call", "").replaceAll("কল", "").replaceAll("ফোন", "").replaceAll("দাও", "").trim();
+      if (name.isNotEmpty) _handleCallCommand(name);
+      else speak("কাকে কল দেব? / Who to call?");
     }
     // Alarm
-    else if (cmd.contains("অ্যালার্ম")) {
+    else if (cmd.contains("alarm") || cmd.contains("অ্যালার্ম")) {
       _handleAlarmCommand(cmd);
     }
     // Timer
-    else if (cmd.contains("টাইমার")) {
+    else if (cmd.contains("timer") || cmd.contains("টাইমার")) {
       _handleTimerCommand(cmd);
     }
     // Media Control
-    else if (cmd.contains("গান") || cmd.contains("চালান") || cmd.contains("থামান") || cmd.contains("পরের")) {
+    else if (cmd.contains("play") || cmd.contains("pause") || cmd.contains("next") || cmd.contains("previous") || 
+             cmd.contains("গান") || cmd.contains("চালান") || cmd.contains("থামান")) {
       String action = "";
-      if (cmd.contains("চালান") || cmd.contains("গান")) action = "play";
-      if (cmd.contains("থামান") || cmd.contains("বন্ধ")) action = "pause";
-      if (cmd.contains("পরের")) action = "next";
-      _controlMedia(action);
-      speak(action == "play" ? "গান চালু করছি" : "গান বন্ধ করছি");
+      if (cmd.contains("play") || cmd.contains("চালান") || cmd.contains("গান")) action = "play";
+      if (cmd.contains("pause") || cmd.contains("থামান") || cmd.contains("বন্ধ")) action = "pause";
+      if (cmd.contains("next") || cmd.contains("পরের")) action = "next";
+      if (cmd.contains("previous") || cmd.contains("আগের")) action = "previous";
+      
+      if (action.isNotEmpty) {
+        _controlMedia(action);
+        speak("$action করছি / $action media");
+      }
     }
     // App Control
-    else if (cmd.contains("খুলো") || cmd.contains("চালু করো")) {
+    else if (cmd.contains("open") || cmd.contains("খুলো") || cmd.contains("চালু করো")) {
       bool appFound = false;
       appPackages.forEach((name, package) {
         if (cmd.contains(name)) {
@@ -200,22 +220,21 @@ class VoiceController extends GetxController {
           appFound = true;
         }
       });
-      if (!appFound) {
-        speak("দুঃখিত, আমি এই অ্যাপটি খুঁজে পাইনি");
-      }
+      if (!appFound) speak("অ্যাপটি খুঁজে পাইনি / App not found");
     }
     // Smart Responses
-    else if (cmd.contains("কেমন আছো") || cmd.contains("কেমন আছ")) {
-      speak("আমি ভালো আছি, আপনি কেমন আছেন?");
-    } else if (cmd.contains("তোমার নাম কি") || cmd.contains("নাম কি")) {
-      speak("আমার নাম $assistantName, আমি আপনার ভয়েস অ্যাসিস্ট্যান্ট");
-    } else if (cmd.contains("হ্যালো") || cmd.contains("হাই")) {
-      speak("হ্যালো! আমি আপনাকে কীভাবে সাহায্য করতে পারি?");
-    } else {
-      // Background recognition can be noisy, so we only speak if it looks like a real command
-      // Or if the app is in foreground
+    else if (cmd.contains("kemon aso") || cmd.contains("কেমন আছো")) {
+      speak("আমি ভালো আছি, আপনি কেমন আছেন? / I'm good, how about you?");
+    } else if (cmd.contains("name") || cmd.contains("নাম")) {
+      speak("আমার নাম জেসমিন / My name is Jasmin");
+    } else if (cmd.contains("hello") || cmd.contains("হাই")) {
+      speak("হ্যালো! / Hello!");
     }
   }
+
+  Future<void> _vibrate() async { await platform.invokeMethod('vibrate'); }
+  Future<void> _turnScreenOn() async { await platform.invokeMethod('turnScreenOn'); }
+  Future<void> _unlockPhone() async { await platform.invokeMethod('unlockPhone'); }
 
   Future<void> _handleAlarmCommand(String cmd) async {
     RegExp regExp = RegExp(r"(\d+)");
@@ -223,15 +242,8 @@ class VoiceController extends GetxController {
     if (matches.isNotEmpty) {
       int hour = int.parse(matches.first.group(0)!);
       int minute = matches.length > 1 ? int.parse(matches.elementAt(1).group(0)!) : 0;
-      
-      try {
-        await platform.invokeMethod('setAlarm', {"hour": hour, "minute": minute});
-        speak("$hour টা $minute মিনিটের জন্য অ্যালার্ম সেট করেছি");
-      } catch (e) {
-        speak("অ্যালার্ম সেট করতে সমস্যা হয়েছে");
-      }
-    } else {
-      speak("অনুগ্রহ করে সময় বলুন");
+      await platform.invokeMethod('setAlarm', {"hour": hour, "minute": minute});
+      speak("অ্যালার্ম সেট করেছি / Alarm set for $hour:$minute");
     }
   }
 
@@ -239,15 +251,9 @@ class VoiceController extends GetxController {
     RegExp regExp = RegExp(r"(\d+)");
     var match = regExp.firstMatch(cmd);
     if (match != null) {
-      int value = int.parse(match.group(0)!);
-      int seconds = value * 60; // Assuming minutes
-      
-      try {
-        await platform.invokeMethod('setTimer', {"seconds": seconds});
-        speak("$value মিনিটের টাইমার সেট করেছি");
-      } catch (e) {
-         speak("টাইমার সেট করতে সমস্যা হয়েছে");
-      }
+      int seconds = int.parse(match.group(0)!) * 60;
+      await platform.invokeMethod('setTimer', {"seconds": seconds});
+      speak("টাইমার সেট করেছি / Timer set");
     }
   }
 
@@ -255,59 +261,23 @@ class VoiceController extends GetxController {
     try {
       final String? number = await platform.invokeMethod('searchContact', {"name": name});
       if (number != null) {
-        speak("$name কে কল করছি");
+        speak("$name কে কল দিচ্ছি / Calling $name");
         await platform.invokeMethod('makeCall', {"number": number});
-      } else {
-        speak("আপনার কন্টাক্টে $name কে খুঁজে পাওয়া যায়নি");
-      }
-    } catch (e) {
-       speak("কল করতে সমস্যা হয়েছে");
-    }
+      } else speak("$name কন্টাক্টে নেই / $name not in contacts");
+    } catch (e) {}
   }
 
   Future<void> _getBatteryLevel() async {
     try {
       final int result = await platform.invokeMethod('getBatteryLevel');
       batteryLevel.value = "$result%";
-    } on PlatformException {
-      batteryLevel.value = "অজানাঁ";
-    }
-  }
-
-  Future<void> _toggleFlashlight(bool turnOn) async {
-    try {
-      await platform.invokeMethod('toggleFlashlight', {"status": turnOn});
     } catch (e) {}
   }
 
-  Future<void> _setVolume(int percent) async {
-    try {
-      await platform.invokeMethod('setVolume', {"percent": percent});
-    } catch (e) {}
-  }
-
-  Future<void> _toggleWifi(bool turnOn) async {
-    try {
-      await platform.invokeMethod('toggleWifi', {"status": turnOn});
-    } catch (e) {}
-  }
-
-  Future<void> _toggleBluetooth(bool turnOn) async {
-    try {
-      await platform.invokeMethod('toggleBluetooth', {"status": turnOn});
-    } catch (e) {}
-  }
-
-  Future<void> _controlMedia(String action) async {
-    try {
-      await platform.invokeMethod('controlMedia', {"action": action});
-    } catch (e) {}
-  }
-
-  Future<void> _launchApp(String packageName, String appName) async {
-    try {
-      await platform.invokeMethod('openApp', {"packageName": packageName});
-      speak("$appName খুলছি");
-    } catch (e) {}
-  }
+  Future<void> _toggleFlashlight(bool turnOn) async { await platform.invokeMethod('toggleFlashlight', {"status": turnOn}); }
+  Future<void> _setVolume(int percent) async { await platform.invokeMethod('setVolume', {"percent": percent}); }
+  Future<void> _toggleWifi(bool turnOn) async { await platform.invokeMethod('toggleWifi', {"status": turnOn}); }
+  Future<void> _toggleBluetooth(bool turnOn) async { await platform.invokeMethod('toggleBluetooth', {"status": turnOn}); }
+  Future<void> _controlMedia(String action) async { await platform.invokeMethod('controlMedia', {"action": action}); }
+  Future<void> _launchApp(String packageName, String appName) async { await platform.invokeMethod('openApp', {"packageName": packageName}); }
 }
